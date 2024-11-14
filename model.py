@@ -162,7 +162,7 @@ class FastRCNN(nn.Module):
         ##############################################################################
         return total_loss
 
-    def inference(self, images, proposals, proposal_batch_ids, thresh=0.5, nms_thresh=0.7):
+    def inference(self, images, proposals, proposal_batch_ids, thresh=0.005, nms_thresh=0.007):
         """"
         Inference-time forward pass for our two-stage Faster R-CNN detector
 
@@ -207,7 +207,7 @@ class FastRCNN(nn.Module):
         features = self.feat_extractor(images)
 
         # perform RoI Pool & mean pool
-        rois = ops.roi_pool(features, torch.cat([proposal_batch_ids.unsqueeze(1), proposals]), output_size=(7, 7))
+        rois = ops.roi_pool(features, torch.cat([proposal_batch_ids.unsqueeze(1), proposals], dim=1), output_size=(7, 7))
         pooled = nn.functional.adaptive_avg_pool2d(rois, (1, 1)).view(rois.size(0), -1)
 
         # forward heads, get predicted cls scores & offsets
@@ -218,24 +218,29 @@ class FastRCNN(nn.Module):
         offsets = self.off_fc(x)
 
         # get predicted boxes & class label & confidence probability
-        GT_labels, GT_confs, GT_bboxes = [], [], [], []
-        GT_labels = nn.functional.softmax(scores)
-        for img_idx in range(B):
-            # get the positive/negative proposals and corresponding
-            # GT box & class label of this image
-            GT_label = nn.functional.softmax(scores)
+        scores = scores[:, :-1]
+        _, temp_class = scores.max(dim=1)
+        temp_conf_probs = torch.take_along_dim(nn.functional.softmax(scores, dim=1), temp_class.unsqueeze(1), dim=1).squeeze(1)
 
         final_proposals = []
         final_conf_probs = []
         final_class = []
         # post-process to get final predictions
         for img_idx in range(B):
-
             # filter by threshold
-            pass
+            pos_mask = torch.logical_and(temp_conf_probs > thresh, proposal_batch_ids == img_idx)
 
             # nms
-            pass
+            p = proposals[pos_mask]
+            cl = temp_class[pos_mask]
+            conf = temp_conf_probs[pos_mask]
+            p = generate_proposal(p, offsets[pos_mask])
+            keep = ops.nms(p, conf, nms_thresh)
+
+            # append to final predictions
+            final_proposals.append(p[keep])
+            final_conf_probs.append(conf[keep])
+            final_class.append(cl[keep])
 
         ##############################################################################
         #                               END OF YOUR CODE                             #
