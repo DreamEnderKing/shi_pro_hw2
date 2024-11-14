@@ -162,7 +162,7 @@ class FastRCNN(nn.Module):
         ##############################################################################
         return total_loss
 
-    def inference(self, images, proposals, proposal_batch_ids, thresh=0.005, nms_thresh=0.007):
+    def inference(self, images, proposals, proposal_batch_ids, thresh=0.5, nms_thresh=0.7):
         """"
         Inference-time forward pass for our two-stage Faster R-CNN detector
 
