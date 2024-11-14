@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchvision import models
+import torchvision.ops as ops
+import numpy as np
 
 from utils import compute_offsets, assign_label, generate_proposal
 from loss import ClsScoreRegression, BboxRegression
@@ -71,7 +73,11 @@ class FastRCNN(nn.Module):
         # hidden_dim -> hidden_dim.                                                  #
         ##############################################################################
         # Replace "pass" statement with your code
-        pass
+        self.shared_fc1 = nn.Linear(in_dim, hidden_dim)
+        self.shared_drop = nn.Dropout(drop_ratio)
+        self.shared_fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.cls_fc = nn.Linear(hidden_dim, num_classes + 1)
+        self.off_fc = nn.Linear(hidden_dim, 4)
         ##############################################################################
         #                               END OF YOUR CODE                             #
         ##############################################################################
@@ -118,23 +124,38 @@ class FastRCNN(nn.Module):
         B, _, H, W = images.shape
         
         # extract image feature
-        pass
+        features = self.feat_extractor(images)
 
         # perform RoI Pool & mean pool
-        pass
+        rois = ops.roi_pool(features, torch.cat([proposal_batch_ids.unsqueeze(1), proposals], dim=1), output_size=(7, 7))
+        pooled = nn.functional.adaptive_avg_pool2d(rois, (1, 1)).view(rois.size(0), -1)
 
         # forward heads, get predicted cls scores & offsets
-        pass
+        x = nn.functional.relu(self.shared_fc1(pooled))
+        x = self.shared_drop(x)
+        x = nn.functional.relu(self.shared_fc2(x))
+        scores = self.cls_fc(x)
+        offsets = self.off_fc(x)
 
         # assign targets with proposals
         pos_masks, neg_masks, GT_labels, GT_bboxes = [], [], [], []
         for img_idx in range(B):
             # get the positive/negative proposals and corresponding
             # GT box & class label of this image
-            pass
+            pos_mask, neg_mask, GT_label, GT_bbox = \
+                assign_label(proposals[proposal_batch_ids == img_idx], \
+                            bboxes[bbox_batch_ids == img_idx], self.num_classes)
+            pos_masks.extend(pos_mask.tolist())
+            neg_masks.extend(neg_mask.tolist())
+            GT_labels.extend(GT_label.tolist())
+            GT_bboxes.extend(GT_bbox.tolist())
 
         # compute loss
-        pass
+        GT_labels = torch.tensor(GT_labels, dtype=torch.long, device=scores.device)
+        GT_bboxes = torch.tensor(GT_bboxes, dtype=torch.float32, device=proposals.device)
+        cls_loss = ClsScoreRegression(scores[np.logical_or(pos_masks, neg_masks)], GT_labels[np.logical_or(pos_masks, neg_masks)], B)
+        bbox_loss = BboxRegression(offsets[pos_masks], compute_offsets(proposals[pos_masks], GT_bboxes), B)
+        total_loss = w_cls * cls_loss + w_bbox * bbox_loss
         
         ##############################################################################
         #                               END OF YOUR CODE                             #
@@ -183,16 +204,26 @@ class FastRCNN(nn.Module):
         B = images.shape[0]
 
         # extract image feature
-        pass
+        features = self.feat_extractor(images)
 
         # perform RoI Pool & mean pool
-        pass
+        rois = ops.roi_pool(features, torch.cat([proposal_batch_ids.unsqueeze(1), proposals]), output_size=(7, 7))
+        pooled = nn.functional.adaptive_avg_pool2d(rois, (1, 1)).view(rois.size(0), -1)
 
         # forward heads, get predicted cls scores & offsets
-        pass
+        x = nn.functional.relu(self.shared_fc1(pooled))
+        x = self.shared_drop(x)
+        x = nn.functional.relu(self.shared_fc2(x))
+        scores = self.cls_fc(x)
+        offsets = self.off_fc(x)
 
         # get predicted boxes & class label & confidence probability
-        pass
+        GT_labels, GT_confs, GT_bboxes = [], [], [], []
+        GT_labels = nn.functional.softmax(scores)
+        for img_idx in range(B):
+            # get the positive/negative proposals and corresponding
+            # GT box & class label of this image
+            GT_label = nn.functional.softmax(scores)
 
         final_proposals = []
         final_conf_probs = []

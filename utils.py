@@ -142,12 +142,23 @@ def compute_iou(anchors, bboxes):
     Outputs:
     - iou: IoU matrix of shape (M, N)
     """
-    iou = None
+    M = anchors.shape[0]
+    N = bboxes.shape[0]
+    iou = torch.zeros((M, N), device=anchors.device)
     ##############################################################################
     # TODO: Given anchors and gt bboxes,                                         #
     # compute the iou between each anchor and gt bbox.                           #
     ##############################################################################
-    pass
+    for i in range(M):
+        for j in range(N):
+            x1 = max(anchors[i][0], bboxes[j][0])
+            y1 = max(anchors[i][1], bboxes[j][1])
+            x2 = min(anchors[i][2], bboxes[j][2])
+            y2 = min(anchors[i][3], bboxes[j][3])
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            area1 = (anchors[i][2] - anchors[i][0]) * (anchors[i][3] - anchors[i][1])
+            area2 = (bboxes[j][2] - bboxes[j][0]) * (bboxes[j][3] - bboxes[j][1])
+            iou[i][j] = inter / (area1 + area2 - inter)
 
     ##############################################################################
     #                               END OF YOUR CODE                             #
@@ -200,13 +211,18 @@ def generate_proposal(anchors, offsets):
     proposal proposals[m].
 
     """
-    proposals = None
+    proposals = torch.zeros_like(anchors)
     ##############################################################################
     # TODO: Given anchor coordinates and the proposed offset for each anchor,    #
     # compute the proposal coordinates using the transformation formulas above.  #
     ##############################################################################
     # Replace "pass" statement with your code
-    pass
+    proposals[:, :2] = ((anchors[:, 2:4] + anchors[:, :2] + 2 * offsets[:, :2]) - \
+                        ((anchors[:, 2:4] - anchors[:, :2]) * torch.exp(offsets[:, 2:4])) \
+                        ) / 2
+    proposals[:, 2:4] = ((anchors[:, 2:4] + anchors[:, :2] + 2 * offsets[:, :2]) + \
+                        ((anchors[:, 2:4] - anchors[:, :2]) * torch.exp(offsets[:, 2:4])) \
+                        ) / 2    
 
     ##############################################################################
     #                               END OF YOUR CODE                             #
